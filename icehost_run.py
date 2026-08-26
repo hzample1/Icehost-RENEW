@@ -133,7 +133,24 @@ def run():
             send_tg_notification(msg, "icehost_debug_screenshot.png")
             return
 
-        # 5. 判定波兰语与英语红框限制
+        print("✅ 登录状态验证成功！")
+
+        # 5. 方案B：登录成功后无论是否续期，都先执行一次 Restart 重启
+        restart_btn_selector = "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'restart')]"
+        restarted = False
+        try:
+            print("正在寻找 Restart 重启按钮...")
+            sb.wait_for_element_visible(restart_btn_selector, timeout=10)
+            print("找到 Restart 按钮，正在点击...")
+            sb.click(restart_btn_selector)
+            sb.sleep(10)
+            sb.save_screenshot("icehost_debug_screenshot.png")
+            print("Restart 按钮点击成功！")
+            restarted = True
+        except Exception as re_e:
+            print(f"未能点击 Restart 按钮: {re_e}")
+
+        # 6. 判定波兰语与英语红框限制
         page_source = sb.get_page_source()
         # 🟢 修复：增加了英文的报错关键词，防止英文面板误判
         keywords = ["Nie możesz przedłużyć", "niedawno to zrobiłeś", "kolejne 6 godziny", "cannot extend", "recently", "next 6 hours"]
@@ -143,7 +160,7 @@ def run():
             print("检测到红框限制提示：说明未到可续期时间。结束本次运行（不发送 Telegram 提醒）。")
             return
 
-        # 6. 安全寻找并点击续期按钮
+        # 7. 安全寻找并点击续期按钮
         # 🟢 修复：同时兼容波兰语 "dodaj 6" 和 英语 "add 6"
         renew_btn_selector = "//*[not(*) and (contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'dodaj 6') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'add 6'))]"
         
@@ -174,25 +191,13 @@ def run():
             
             if is_now_limited:
                 msg = "⚡ <b>IceHost 服务器续期成功！</b>\n服务器已真正成功延长 6 小时有效期。"
-                print(msg)
             else:
                 msg = "ℹ️ <b>IceHost 续期指令已发送</b>\n按钮已点击，请检查下方截图确认是否成功。"
-                print(msg)
-
-            # 7. 寻找并点击 Restart 按钮
-            restart_btn_selector = "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'restart')]"
-            try:
-                print("正在寻找 Restart 按钮...")
-                sb.wait_for_element_visible(restart_btn_selector, timeout=10)
-                print("找到 Restart 按钮，正在点击...")
-                sb.click(restart_btn_selector)
-                sb.sleep(10)
-                print("Restart 按钮点击成功！")
+            
+            if restarted:
                 msg += "\n🔄 <b>服务器已触发 Restart 重启</b>"
-            except Exception as re_e:
-                print(f"未能点击 Restart 按钮: {re_e}")
-                msg += f"\n⚠️ 未能点击 Restart 按钮: {re_e}"
-
+            
+            print(msg)
             sb.save_screenshot("icehost_debug_screenshot.png")
             send_tg_notification(msg, "icehost_debug_screenshot.png")
                 
