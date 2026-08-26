@@ -168,7 +168,6 @@ def run():
             print("点击后未检测到报错红条，正在刷新页面确认续期结果...")
             sb.refresh()
             sb.sleep(5)
-            sb.save_screenshot("icehost_debug_screenshot.png")
             
             updated_source = sb.get_page_source()
             is_now_limited = any(kw in updated_source for kw in keywords)
@@ -176,11 +175,26 @@ def run():
             if is_now_limited:
                 msg = "⚡ <b>IceHost 服务器续期成功！</b>\n服务器已真正成功延长 6 小时有效期。"
                 print(msg)
-                send_tg_notification(msg, "icehost_debug_screenshot.png")
             else:
                 msg = "ℹ️ <b>IceHost 续期指令已发送</b>\n按钮已点击，请检查下方截图确认是否成功。"
                 print(msg)
-                send_tg_notification(msg, "icehost_debug_screenshot.png")
+
+            # 7. 寻找并点击 Restart 按钮
+            restart_btn_selector = "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'restart')]"
+            try:
+                print("正在寻找 Restart 按钮...")
+                sb.wait_for_element_visible(restart_btn_selector, timeout=10)
+                print("找到 Restart 按钮，正在点击...")
+                sb.click(restart_btn_selector)
+                sb.sleep(10)
+                print("Restart 按钮点击成功！")
+                msg += "\n🔄 <b>服务器已触发 Restart 重启</b>"
+            except Exception as re_e:
+                print(f"未能点击 Restart 按钮: {re_e}")
+                msg += f"\n⚠️ 未能点击 Restart 按钮: {re_e}"
+
+            sb.save_screenshot("icehost_debug_screenshot.png")
+            send_tg_notification(msg, "icehost_debug_screenshot.png")
                 
         except Exception as e:
             # 🟢 修复：加上了 TG 推送，找不到按钮时能在 TG 收到报错截图
