@@ -2,21 +2,24 @@ import os
 import time
 import json
 import urllib.parse
+import html
 import requests
 # 引入 SeleniumBase 高级过盾包
 from seleniumbase import SB
 
 SERVER_URL = os.getenv("ICEHOST_SERVER_URL")
 ICEHOST_COOKIES = os.getenv("ICEHOST_COOKIES")
+GITHUB_EVENT_NAME = os.getenv("GITHUB_EVENT_NAME", "")
 
 def send_tg_notification(message, photo_path=None):
-    """发送结果和截图至 Telegram"""
-    token = os.getenv("TG_BOT_TOKEN")
-    chat_id = os.getenv("TG_CHAT_ID")
+    """发送结果和截图至 Telegram 并详细输出返回结果"""
+    token = (os.getenv("TG_BOT_TOKEN") or "").strip()
+    chat_id = (os.getenv("TG_CHAT_ID") or "").strip()
     if not token or not chat_id:
-        print("未配置 TG 机器人变量，跳过发送 TG 推送。")
+        print(f"⚠️ 未配置完整的 TG 变量 (TG_BOT_TOKEN: {'已设置' if token else '未配置'}, TG_CHAT_ID: {'已设置' if chat_id else '未配置'})，跳过发送 TG 推送。")
         return
 
+    # 1. 发送文本消息
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {
@@ -24,21 +27,28 @@ def send_tg_notification(message, photo_path=None):
             "text": message,
             "parse_mode": "HTML"
         }
-        requests.post(url, json=payload)
-        print("TG 状态通知发送成功。")
+        resp = requests.post(url, json=payload, timeout=20)
+        if resp.status_code == 200:
+            print("✅ TG 状态文本通知发送成功。")
+        else:
+            print(f"❌ TG 状态通知发送失败！HTTP {resp.status_code}，响应: {resp.text}")
     except Exception as e:
-        print(f"发送 TG 消息异常: {e}")
+        print(f"❌ 发送 TG 消息网络异常: {e}")
 
+    # 2. 发送截图
     if photo_path and os.path.exists(photo_path):
         try:
             url = f"https://api.telegram.org/bot{token}/sendPhoto"
             with open(photo_path, "rb") as f:
                 files = {"photo": f}
                 data = {"chat_id": chat_id, "caption": "IceHost 实时画面"}
-                requests.post(url, data=data, files=files)
-            print("TG 截图发送成功。")
+                resp_photo = requests.post(url, data=data, files=files, timeout=30)
+                if resp_photo.status_code == 200:
+                    print("✅ TG 截图发送成功。")
+                else:
+                    print(f"❌ TG 截图发送失败！HTTP {resp_photo.status_code}，响应: {resp_photo.text}")
         except Exception as e:
-            print(f"发送 TG 截图异常: {e}")
+            print(f"❌ 发送 TG 截图网络异常: {e}")
 
 def run():
     if not SERVER_URL:
@@ -135,7 +145,7 @@ def run():
 
         print("✅ 登录状态验证成功！")
 
-        # 5. 方案B：登录成功后无论是否续期，都先执行一次 Restart 重启
+        # 5. 登录成功后无论是否续期，都先执行一次 Restart 重启
         restart_btn_selector = "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'restart')]"
         restarted = False
         try:
@@ -152,16 +162,23 @@ def run():
 
         # 6. 判定波兰语与英语红框限制
         page_source = sb.get_page_source()
-        # 🟢 修复：增加了英文的报错关键词，防止英文面板误判
         keywords = ["Nie możesz przedłużyć", "niedawno to zrobiłeś", "kolejne 6 godziny", "cannot extend", "recently", "next 6 hours"]
         is_limited = any(kw in page_source for kw in keywords)
 
         if is_limited:
-            print("检测到红框限制提示：说明未到可续期时间。结束本次运行（不发送 Telegram 提醒）。")
+            print("检测到红框限制提示：说明当前处于冷却保护期，未到可续期时间。")
+            # 如果是手动触发 workflow_dispatch，发送 TG 通知告知运行正常
+            if GITHUB_EVENT_NAME == "workflow_dispatch":
+                msg = "ℹ️ <b>IceHost 运行报告（手动触发）</b>\n当前处于 6 小时冷却保护期内（暂未到续期时间）。登录及重启操作正常。"
+                if restarted:
+                    msg += "\n🔄 <b>服务器已触发 Restart 重启</b>"
+                sb.save_screenshot("icehost_debug_screenshot.png")
+                send_tg_notification(msg, "icehost_debug_screenshot.png")
+            else:
+                print("定时任务检测到冷却期，跳过发送 TG 通知，结束本次运行。")
             return
 
         # 7. 安全寻找并点击续期按钮
-        # 🟢 修复：同时兼容波兰语 "dodaj 6" 和 英语 "add 6"
         renew_btn_selector = "//*[not(*) and (contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'dodaj 6') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'add 6'))]"
         
         try:
@@ -170,19 +187,12 @@ def run():
             print("未检测到限制提示，找到续期按钮，正在点击...")
             sb.click(renew_btn_selector)
             
-            # ⚡ 点击后，在不刷新页面的前提下，先等待 5 秒让可能弹出的红框提示充分渲染
+            # 点击后等待 5 秒让请求完成
             sb.sleep(5)
             sb.save_screenshot("icehost_debug_screenshot.png")
             
-            # 立即读取当前最真实的页面源码（此时若有报错红条，必定还挂在屏幕上）
-            current_source = sb.get_page_source()
-            is_failed_due_to_limit = any(kw in current_source for kw in keywords)
-            
-            if is_failed_due_to_limit:
-                print("点击后，页面立刻弹出了限制提示：说明未到可续期时间。结束本次运行。")
-                return
-            
-            print("点击后未检测到报错红条，正在刷新页面确认续期结果...")
+            # 刷新页面确认续期结果
+            print("点击完成，正在刷新页面确认续期结果...")
             sb.refresh()
             sb.sleep(5)
             
@@ -202,9 +212,9 @@ def run():
             send_tg_notification(msg, "icehost_debug_screenshot.png")
                 
         except Exception as e:
-            # 🟢 修复：加上了 TG 推送，找不到按钮时能在 TG 收到报错截图
-            error_msg = "❌ <b>IceHost 续期异常！</b>\n未找到续期按钮，可能是网页加载失败、被限制或按钮文本有变，请查看截图。"
+            error_msg = f"❌ <b>IceHost 续期异常！</b>\n未找到续期按钮或操作失败: {html.escape(str(e))}"
             print(f"未在页面中找到可用的续期按钮: {e}")
+            sb.save_screenshot("icehost_debug_screenshot.png")
             send_tg_notification(error_msg, "icehost_debug_screenshot.png")
 
 if __name__ == "__main__":

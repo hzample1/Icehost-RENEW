@@ -26,10 +26,10 @@ jobs:
 
       - name: Run check script
         env:
-          ICEHOST_SERVER_URL: ${{ secrets.ICEHOST_SERVER_URL }}
-          ICEHOST_COOKIES: ${{ secrets.ICEHOST_COOKIES }}
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          ICEHOST_SERVER_URL: ${{ secrets.ICEHOST_SERVER_URL || vars.ICEHOST_SERVER_URL }}
+          ICEHOST_COOKIES: ${{ secrets.ICEHOST_COOKIES || vars.ICEHOST_COOKIES }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN || vars.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID || vars.TG_CHAT_ID }}
         run: python icehost_run.py
 
       - name: Upload Debug Screenshot
